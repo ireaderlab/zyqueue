@@ -1,0 +1,120 @@
+#!/usr/bin/env python
+# -*- coding: utf-8 -*-
+
+'''
+Copyright (c) 2014,掌阅科技
+All rights reserved.
+
+摘    要: zyqueue
+创 建 者: ZengDuju
+创建日期: 2015-09-15
+'''
+import sys
+import os
+import argparse
+import logging
+
+import zyqueue
+
+
+def setup_logging(options):
+    """log 配置
+    """
+    if options.debug:
+        level = logging.DEBUG
+    else:
+        level = logging.INFO
+
+    log_format = "%(asctime)s %(levelname)s:%(name)s: %(message)s"
+    logging.basicConfig(level=level, format=log_format, stream=sys.stdout)
+
+
+def queue_serve(options):
+    """queue worker serve start
+    """
+    server = zyqueue.QueueWorkerServer(options,
+                                       use_sighandler=True,
+                                       verbose=True)
+    server.serve_forever()
+
+
+def main():
+    """主函数
+    """
+    parser = argparse.ArgumentParser(description='Zhangyue queue client.')
+    parser.add_argument("-S", "--server",
+                        help="Queue Server, Redis or Gearman",
+                        required=True)
+    # common
+    common_args = parser.add_argument_group('Common arguments')
+    common_args.add_argument("-C", "--connection",
+                             help="Queue server address to use for connection")
+    common_args.add_argument("--status",
+                             help="Status for the queue server",
+                             action="store_true")
+    common_args.add_argument("--workers",
+                             help="Workers for the queue server",
+                             action="store_true")
+    common_args.add_argument("--max_workers",
+                             help="The maximum number of queue worker",
+                             type=int)
+    common_args.add_argument("--task_file", help="The queue task file")
+    common_args.add_argument("--debug",
+                             help="Debug log level",
+                             action="store_true")
+    # gearman
+    gearman_args = parser.add_argument_group('Gearman command arguments')
+    gearman_args.add_argument("--shutdown",
+                              help="Shutdown gearman server",
+                              action="store_true")
+    gearman_args.add_argument("--gmversion",
+                              help="The version number of the gearman server",
+                              action="store_true")
+    # RQ
+    rq_args = parser.add_argument_group('RQ command arguments')
+    rq_args.add_argument("--queue", help="RQ queue info")
+    rq_args.add_argument("--queues",
+                         help="All RQ queues infos",
+                         action="store_true")
+    rq_args.add_argument("--jobs",
+                         help="All RQ jobs infos of one queue")
+    rq_args.add_argument("--cancel_job",
+                         help="Cancels the job with the given job ID")
+    rq_args.add_argument("--requeue_job",
+                         help="Requeues the job with the given job ID")
+    rq_args.add_argument("--requeue_all",
+                         help="Requeue all failed jobs",
+                         action="store_true")
+    rq_args.add_argument("--empty_queue", help="Empty given queues.")
+    rq_args.add_argument("--compact_queue", help="Compact given queues.")
+
+    options = parser.parse_args()
+    setup_logging(options)
+
+    if is_check_sever_status(options):
+        queue_info = zyqueue.queue_admin(options)
+        print queue_info
+        sys.exit(0)
+    # 检查task file是否存在
+    isfile = os.path.isfile(options.task_file)
+    if not isfile:
+        print "Error: job file '{}' does not exist!".format(options.task_file)
+        sys.exit(0)
+    queue_serve(options)
+    return
+
+
+def is_check_sever_status(options):
+    """判断命令参数是否为查询服务状态信息
+    """
+    for key in ('status', 'workers', 'shutdown', 'gmversion',
+                'queue', 'queues', 'jobs', 'cancel_job',
+                'requeue_job', 'requeue_all', 'empty_queue',
+                'compact_queue'):
+        if getattr(options, key):
+            return True
+    return False
+
+
+if __name__ == "__main__":
+    main()
