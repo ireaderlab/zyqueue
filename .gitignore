@@ -1,0 +1,8 @@
+*.pyc
+.settings/org.eclipse.core.resources.prefs
+.pydevproject
+conf/.settings.py.swp
+*.swp
+.DS_Store
+.project
+static/pics
