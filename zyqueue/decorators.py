@@ -152,7 +152,7 @@ def submit_rmq_job(connection, job_data,
 class QueueJob(object):
     """job添加修饰器
     """
-    _tasks = []
+    _tasks = defaultdict(set)
     _brokers = set()
 
     def __init__(self,
@@ -165,9 +165,9 @@ class QueueJob(object):
         """初始化
         """
         # 中间人参数
-        self.server = server
-        self.connection = connection
-        self._brokers.add((self.server.lower(), self.connection.lower()))
+        self.server = server.lower()
+        self.connection = connection.lower()
+        self._brokers.add((self.server, self.connection))
 
         # RabbitMQ参数
         self.rabbitmq_kwargs = {'queue': queue,
@@ -179,8 +179,11 @@ class QueueJob(object):
         """增加submit方法
         """
         job_name = _func.__name__
-        self._tasks.append(Task(job_name, _func,
-                                rabbitmq_kwargs=self.rabbitmq_kwargs))
+        self._tasks[(self.server, self.connection)].add(Task(
+            job_name,
+            _func,
+            rabbitmq_kwargs=self.rabbitmq_kwargs
+        ))
 
         @wraps(_func)
         def submit(job_data, **kwargs):
@@ -192,9 +195,9 @@ class QueueJob(object):
             kwargs['job_name'] = job_name
             if self.server in Register.get_reg_server():
                 # 不同server共用参数加上自有参数
-                Register.get_registered()[server]['submit'](self.connection, job_data, **kwargs)
+                Register.get_registered()[self.server]['submit'](self.connection, job_data, **kwargs)
             else:
-                error_str = "queue 任务添加失败: 不支持指定server: {}, job_name: {}".format(server, job_name)
+                error_str = "queue 任务添加失败: 不支持指定server: {}, job_name: {}".format(self.server, job_name)
                 logging.error(error_str, exc_info=True)
         _func.submit = submit
         return _func

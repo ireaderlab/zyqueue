@@ -14,7 +14,7 @@ import logging
 from zyqueue import QueueJob
 
 
-@QueueJob(server='gearman', connection='192.168.6.7:18888')
+# @QueueJob(server='gearman', connection='192.168.6.7:18888')
 def queue_task_gearman(worker, job):
     """gearman tast execute
     """
@@ -37,7 +37,7 @@ def queue_task_redis(worker, job):
 
 
 @QueueJob(server='rabbitmq', connection='192.168.6.7', exchange='zyqueue_rmq', exchange_type='direct', queue="zyqueue_test", routing_keys='route1')
-def queue_task_redis(worker, job):
+def queue_task_rabbitmq(worker, job):
     """gearman tast execute
     """
     try:

@@ -76,7 +76,7 @@ class QueueWorkerServer(object):
     def start_process(self, doneq, server, connection, process_counter):
         target_kwargs = {}
         target_kwargs['doneq'] = doneq
-        target_kwargs['tasks'] = self.tasks
+        target_kwargs['tasks'] = self.tasks.get((server, connection), [])
         target = Register.get_registered()[server]['worker']
         target_kwargs['connection'] = connection
         client_id = '{}.{}{}'.format(server, self.id_prefix, process_counter)
