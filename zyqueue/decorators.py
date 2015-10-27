@@ -15,6 +15,7 @@ import sys
 import logging
 import traceback
 from functools import wraps
+from collections import defaultdict
 
 import gearman
 from gearman.constants import PRIORITY_NONE
@@ -38,10 +39,7 @@ class Task(object):
     """
 
     def __init__(self, task, callback,
-                 exchange='',
-                 exchange_type='',
-                 queue='',
-                 routing_keys='',
+                 rabbitmq_kwargs=None,
                  verbose=False):
         """初始化操作
         """
@@ -50,10 +48,7 @@ class Task(object):
         self.verbose = verbose
 
         # rabbitmq 任务专用参数
-        self.exchange = exchange
-        self.exchange_type = exchange_type
-        self.queue = queue
-        self.routing_keys = routing_keys
+        self.rabbitmq_kwargs = rabbitmq_kwargs
 
     def __call__(self, worker, job):
         try:
@@ -158,29 +153,34 @@ class QueueJob(object):
     """job添加修饰器
     """
     _tasks = []
+    _brokers = set()
 
     def __init__(self,
+                 server='',
+                 connection='',
                  exchange='',
                  exchange_type='',
                  queue='',
                  routing_keys=''):
         """初始化
         """
-        self.queue = queue
-        self.exchange = exchange
-        self.exchange_type= exchange_type
-        self.queue = queue
-        self.routing_keys = routing_keys
+        # 中间人参数
+        self.server = server
+        self.connection = connection
+        self._brokers.add((self.server.lower(), self.connection.lower()))
+
+        # RabbitMQ参数
+        self.rabbitmq_kwargs = {'queue': queue,
+                                'exchange': exchange,
+                                'exchange_type': exchange_type,
+                                'routing_keys': routing_keys}
 
     def __call__(self, _func):
         """增加submit方法
         """
         job_name = _func.__name__
         self._tasks.append(Task(job_name, _func,
-                                exchange=self.exchange,
-                                exchange_type=self.exchange_type,
-                                queue=self.queue,
-                                routing_keys=self.routing_keys))
+                                rabbitmq_kwargs=self.rabbitmq_kwargs))
 
         @wraps(_func)
         def submit(server, connection, job_data, **kwargs):
@@ -190,9 +190,9 @@ class QueueJob(object):
             """
             kwargs['func'] = _func
             kwargs['job_name'] = job_name
-            if server.lower() in Register.get_reg_server():
+            if server in Register.get_reg_server():
                 # 不同server共用参数加上自有参数
-                Register.get_registered()[server.lower()]['submit'](connection, job_data, **kwargs)
+                Register.get_registered()[server]['submit'](connection, job_data, **kwargs)
             else:
                 error_str = "queue 任务添加失败: 不支持指定server: {}, job_name: {}".format(server, job_name)
                 logging.error(error_str, exc_info=True)
@@ -205,6 +205,12 @@ class QueueJob(object):
         """
         return cls._tasks
 
+    @classmethod
+    def get_brokers(cls):
+        """获取全部中间人
+        """
+        return cls._brokers
+
 
 def load(task_file):
     """加载目录
@@ -215,4 +221,5 @@ def load(task_file):
 
     # 通过修饰器获取配置
     tasks = QueueJob.get_tasks()
-    return tasks
+    brokers = QueueJob.get_brokers()
+    return tasks, brokers

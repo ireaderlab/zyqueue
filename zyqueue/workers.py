@@ -18,6 +18,7 @@ from multiprocessing import Process, Queue, cpu_count, active_children
 from Queue import Empty
 import logging
 import ujson as json
+from collections import defaultdict
 
 import gearman
 from redis import Redis
@@ -33,7 +34,7 @@ from .register import Register
 __all__ = ['QueueWorkerServer']
 listen = ['high', 'default', 'low']
 
-QUEUE_WORKERS = []  # 记录所有进程的信息
+QUEUE_WORKERS = defaultdict(set)  # 记录所有进程的信息
 
 
 class GearmanWorker(gearman.GearmanWorker):
@@ -58,8 +59,8 @@ class QueueWorkerServer(object):
                  options,
                  use_sighandler=True,
                  verbose=False):
-        self.tasks = load(task_file=options.task_file)
-        self.connection = options.connection
+        self.tasks, self.brokers = load(task_file=options.task_file)
+        # self.connection = options.connection
         self.verbose = verbose
         self.id_prefix = ''
         if options.max_workers:
@@ -68,36 +69,39 @@ class QueueWorkerServer(object):
             self.max_workers = cpu_count()
         if use_sighandler:
             self._setup_sighandler()
-        self.target_kwargs = {}
-        self.target_kwargs['connection'] = self.connection
-        self.target = Register.get_registered()[options.server.lower()]['worker']
+
         file_name = os.path.split(options.task_file)[1]
         self.id_prefix = "{}.".format(file_name)
-        self.target_kwargs['tasks'] = self.tasks
+
+    def start_process(self, doneq, server, connection, process_counter):
+        target_kwargs = {}
+        target_kwargs['doneq'] = doneq
+        target_kwargs['tasks'] = self.tasks
+        target = Register.get_registered()[server]['worker']
+        target_kwargs['connection'] = connection
+        client_id = '{}.{}{}'.format(server, self.id_prefix, process_counter)
+        target_kwargs['client_id'] = client_id
+        proc = Process(target=target, kwargs=target_kwargs)
+        proc.start()
+        if self.verbose:
+            logging.info("Server: %s. Num workers: %s of %s", server, process_counter, self.max_workers)
+        return proc
 
     def serve_forever(self):
         """启动多进程服务处理队列任务
         """
         global QUEUE_WORKERS
-        QUEUE_WORKERS = []
+        QUEUE_WORKERS = defaultdict(set)
         # 队列初始化
         doneq = Queue()
-        self.target_kwargs['doneq'] = doneq
         # 记录创建的进程数,保证每个进程id唯一
         process_counter = 0
         try:
             while True:
-                while len(QUEUE_WORKERS) < self.max_workers:
-                    process_counter += 1
-                    client_id = None
-                    if self.id_prefix:
-                        client_id = '{0}{1}'.format(self.id_prefix, process_counter)
-                    self.target_kwargs['client_id'] = client_id
-                    p = Process(target=self.target, kwargs=self.target_kwargs)
-                    p.start()
-                    QUEUE_WORKERS.append(p)
-                    if self.verbose:
-                        logging.info("Num workers:  %s of %s", len(QUEUE_WORKERS), self.max_workers)
+                for server, connection in self.brokers:
+                    while len(QUEUE_WORKERS[(server, connection)]) < self.max_workers:
+                        QUEUE_WORKERS[(server, connection)].add(self.start_process(doneq, server, connection, process_counter))
+                        process_counter += 1
                 try:
                     r = doneq.get(True, 5)
                 except Empty:
@@ -110,7 +114,8 @@ class QueueWorkerServer(object):
                     elif r is True:
                         logging.info('Normal process exit (May actually be a problem)')
                 time.sleep(0.1)
-                QUEUE_WORKERS = [w for w in active_children() if w in QUEUE_WORKERS]
+                for server, connection in self.brokers:
+                    QUEUE_WORKERS[(server, connection)] = set([w for w in active_children() if w in QUEUE_WORKERS[(server, connection)]])
         except KeyboardInterrupt:
             logging.error('EXIT.  RECEIVED INTERRUPT')
 
@@ -125,12 +130,13 @@ class QueueWorkerServer(object):
 def _interrupt_handler(signum, frame):
     """获取信号后响应
     """
-    # global QUEUE_WORKERS
+    global QUEUE_WORKERS
     logging.info('get signal: signum=%s, frame=%s', signum, frame.f_exc_value)
     if signum in (signal.SIGTERM, signal.SIGINT):
-        for worker in QUEUE_WORKERS:
-            if worker in active_children():
-                worker.terminate()
+        for workers in QUEUE_WORKERS.values():
+            for worker in workers:
+                if worker in active_children():
+                    worker.terminate()
         sys.exit(0)
     raise KeyboardInterrupt()
 
@@ -199,10 +205,12 @@ def _rabbitmq_worker_process(doneq, connection, tasks=None, client_id=None, verb
     for task in tasks:
         # taskname = task.task
         callback = task
-        exchange = task.exchange
-        exchange_type = task.exchange_type
-        queue = task.queue
-        routing_keys = task.routing_keys
+
+        rabbitmq_kwargs = task.rabbitmq_kwargs or {}
+        exchange = rabbitmq_kwargs.get('exchange')
+        exchange_type = rabbitmq_kwargs.get('exchange_type')
+        queue = rabbitmq_kwargs.get('queue')
+        routing_keys = rabbitmq_kwargs.get('routing_keys')
 
         def rmq_cb(ch, method, properties, body):
             """rabbitmq callback函数, 收到服务端分发的消息后调用

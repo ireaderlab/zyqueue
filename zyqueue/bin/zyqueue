@@ -42,13 +42,13 @@ def main():
     """主函数
     """
     parser = argparse.ArgumentParser(description='Zhangyue queue client.')
-    parser.add_argument("-S", "--server",
-                        help="Queue Server, Redis or Gearman",
-                        required=True)
+    # parser.add_argument("-S", "--server",
+    #                     help="Queue Server, Redis or Gearman",
+    #                     required=True)
     # common
     common_args = parser.add_argument_group('Common arguments')
-    common_args.add_argument("-C", "--connection",
-                             help="Queue server address to use for connection")
+    # common_args.add_argument("-C", "--connection",
+    #                          help="Queue server address to use for connection")
     common_args.add_argument("--status",
                              help="Status for the queue server",
                              action="store_true")
