@@ -183,16 +183,16 @@ class QueueJob(object):
                                 rabbitmq_kwargs=self.rabbitmq_kwargs))
 
         @wraps(_func)
-        def submit(server, connection, job_data, **kwargs):
+        def submit(job_data, **kwargs):
             """
             Args:
                 job_data支持list和dict两种结构
             """
             kwargs['func'] = _func
             kwargs['job_name'] = job_name
-            if server in Register.get_reg_server():
+            if self.server in Register.get_reg_server():
                 # 不同server共用参数加上自有参数
-                Register.get_registered()[server]['submit'](connection, job_data, **kwargs)
+                Register.get_registered()[server]['submit'](self.connection, job_data, **kwargs)
             else:
                 error_str = "queue 任务添加失败: 不支持指定server: {}, job_name: {}".format(server, job_name)
                 logging.error(error_str, exc_info=True)
