@@ -1,4 +1,4 @@
-# ZyQueue 1.0.0 文档
+# [ZyQueue 1.0.0 文档](http://techblog.ireader.com.cn/blog/zyqueue/)
 
 任务队列
 
